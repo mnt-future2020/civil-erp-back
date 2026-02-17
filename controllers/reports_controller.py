@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from typing import Optional
 from datetime import datetime, timezone
 from io import BytesIO
@@ -13,7 +13,6 @@ from reportlab.platypus import SimpleDocTemplate, Table as RLTable, TableStyle, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from database import db
-from config import EXPORT_DIR
 
 
 def style_excel_header(ws, row=1):
@@ -299,7 +298,7 @@ async def get_cost_variance_report() -> dict:
     }
 
 
-async def export_report(report_type: str, format: str) -> FileResponse:
+async def export_report(report_type: str, format: str) -> StreamingResponse:
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     billings = await db.billings.find({}, {"_id": 0}).to_list(1000)
     cvrs = await db.cvrs.find({}, {"_id": 0}).to_list(1000)
@@ -399,13 +398,14 @@ async def export_report(report_type: str, format: str) -> FileResponse:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")
 
         auto_column_width(ws)
-        filepath = EXPORT_DIR / f"{report_type}_{timestamp}.xlsx"
-        wb.save(str(filepath))
-        return FileResponse(str(filepath), filename=f"{report_type}_{timestamp}.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename={report_type}_{timestamp}.xlsx"})
 
     elif format == "pdf":
-        filepath = EXPORT_DIR / f"{report_type}_{timestamp}.pdf"
-        doc = SimpleDocTemplate(str(filepath), pagesize=landscape(A4), leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle("ReportTitle", parent=styles["Heading1"], fontSize=16, spaceAfter=6)
         subtitle_style = ParagraphStyle("ReportSubtitle", parent=styles["Normal"], fontSize=9, textColor=colors.grey, spaceAfter=12)
@@ -473,6 +473,7 @@ async def export_report(report_type: str, format: str) -> FileResponse:
         else:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")
         doc.build(elements)
-        return FileResponse(str(filepath), filename=f"{report_type}_{timestamp}.pdf", media_type="application/pdf")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={report_type}_{timestamp}.pdf"})
 
     raise HTTPException(status_code=400, detail="Format must be 'excel' or 'pdf'")

@@ -20,9 +20,7 @@ PERMISSION_TYPES = ["view", "create", "edit", "delete"]
 
 # File Upload
 UPLOAD_DIR = ROOT_DIR / "uploads"
-EXPORT_DIR = ROOT_DIR / "exports"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.webp', '.dwg', '.dxf', '.doc', '.docx', '.xls', '.xlsx'}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB

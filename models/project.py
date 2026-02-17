@@ -78,6 +78,8 @@ class DPRCreate(BaseModel):
     materials_used_entries: List[dict] = Field(default_factory=list)
     issues: Optional[str] = None
     notes: Optional[str] = None
+    sqft_completed: Optional[float] = None
+    tomorrow_schedule: Optional[str] = None
 
 
 class DPR(DPRCreate):
