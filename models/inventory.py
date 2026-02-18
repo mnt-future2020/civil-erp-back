@@ -10,6 +10,11 @@ INVENTORY_CATEGORIES = [
     "Hardware", "Glass", "Waterproofing", "Formwork", "Other"
 ]
 
+EQUIPMENT_CATEGORIES = [
+    "Machine", "Vehicle", "Power Tool", "Hand Tool",
+    "Safety Equipment", "Survey Instrument", "Scaffolding", "Other"
+]
+
 INVENTORY_UNITS = [
     "MT", "Kg", "Bags", "Nos", "Sqft", "Sqm",
     "Rft", "Rmt", "Ltr", "Cum", "Sets", "Rolls"
@@ -17,16 +22,24 @@ INVENTORY_UNITS = [
 
 
 class InventoryItemCreate(BaseModel):
+    item_type: str = "material"          # "material" | "equipment"
     project_id: str
     item_name: str
     category: str
-    unit: str
-    quantity: float
+    unit: Optional[str] = None
+    # Material fields
+    quantity: float = 0.0
     minimum_quantity: float = 0.0
     unit_price: float = 0.0
     gst_rate: float = 18.0
     hsn_code: Optional[str] = None
-    location: Optional[str] = None       # Storage location on site
+    # Equipment fields
+    serial_number: Optional[str] = None
+    condition: Optional[str] = None      # good | fair | poor
+    purchase_date: Optional[str] = None
+    equipment_status: Optional[str] = None  # available | in_use | maintenance | retired
+    # Common
+    location: Optional[str] = None
     vendor_id: Optional[str] = None
     notes: Optional[str] = None
 
@@ -40,6 +53,10 @@ class InventoryItemUpdate(BaseModel):
     unit_price: Optional[float] = None
     gst_rate: Optional[float] = None
     hsn_code: Optional[str] = None
+    serial_number: Optional[str] = None
+    condition: Optional[str] = None
+    purchase_date: Optional[str] = None
+    equipment_status: Optional[str] = None
     location: Optional[str] = None
     vendor_id: Optional[str] = None
     notes: Optional[str] = None

@@ -19,18 +19,18 @@ async def upload_document(
 
 
 @router.get("")
-async def list_documents(project_id: Optional[str] = None, current_user: Employee = Depends(get_current_user)):
-    return await documents_controller.list_documents(project_id)
+async def list_documents(project_id: Optional[str] = None, exclude_category: Optional[str] = None, current_user: Employee = Depends(get_current_user)):
+    return await documents_controller.list_documents(project_id, exclude_category)
+
+
+@router.get("/{doc_id}/content")
+async def serve_document_content(doc_id: str, current_user: Employee = Depends(get_current_user)):
+    return await documents_controller.serve_document_content(doc_id)
 
 
 @router.get("/{doc_id}")
 async def get_document(doc_id: str, current_user: Employee = Depends(get_current_user)):
     return await documents_controller.get_document(doc_id)
-
-
-@router.get("/file/{filename}")
-async def serve_local_file(filename: str):
-    return documents_controller.serve_local_file(filename)
 
 
 @router.delete("/{doc_id}")

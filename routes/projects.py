@@ -97,3 +97,9 @@ async def create_dpr(dpr_data: DPRCreate, current_user: Employee = Depends(check
 @router.get("/dpr", response_model=List[DPR])
 async def get_dprs(project_id: Optional[str] = None, current_user: Employee = Depends(get_current_user)):
     return await project_controller.get_dprs(project_id)
+
+
+@router.get("/dpr/opening-stock")
+async def get_opening_stock(project_id: str, inventory_id: str, date: str, current_user: Employee = Depends(get_current_user)):
+    stock = await project_controller.get_previous_closing_stock(project_id, inventory_id, date)
+    return {"opening_stock": stock}

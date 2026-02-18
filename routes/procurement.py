@@ -19,9 +19,9 @@ async def create_vendor(vendor_data: VendorCreate, current_user: Employee = Depe
     return await procurement_controller.create_vendor(vendor_data)
 
 
-@router.get("/vendors", response_model=List[Vendor])
-async def get_vendors(category: Optional[str] = None, current_user: Employee = Depends(get_current_user)):
-    return await procurement_controller.get_vendors(category)
+@router.get("/vendors")
+async def get_vendors(category: Optional[str] = None, page: int = 1, limit: int = 20, show_inactive: bool = False, current_user: Employee = Depends(get_current_user)):
+    return await procurement_controller.get_vendors(category, page, limit, show_inactive)
 
 
 @router.get("/vendors/{vendor_id}", response_model=Vendor)
@@ -49,6 +49,11 @@ async def deactivate_vendor(vendor_id: str, current_user: Employee = Depends(che
     return await procurement_controller.deactivate_vendor(vendor_id)
 
 
+@router.patch("/vendors/{vendor_id}/reactivate")
+async def reactivate_vendor(vendor_id: str, current_user: Employee = Depends(check_permission("procurement", "edit"))):
+    return await procurement_controller.reactivate_vendor(vendor_id)
+
+
 # ── Purchase Orders ───────────────────────────────────────
 
 @router.post("/purchase-orders", response_model=PurchaseOrder)
@@ -57,8 +62,8 @@ async def create_purchase_order(po_data: PurchaseOrderCreate, current_user: Empl
 
 
 @router.get("/purchase-orders")
-async def get_purchase_orders(project_id: Optional[str] = None, vendor_id: Optional[str] = None, status: Optional[str] = None, current_user: Employee = Depends(get_current_user)):
-    return await procurement_controller.get_purchase_orders(project_id, vendor_id, status)
+async def get_purchase_orders(project_id: Optional[str] = None, vendor_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 10, current_user: Employee = Depends(get_current_user)):
+    return await procurement_controller.get_purchase_orders(project_id, vendor_id, status, page, limit)
 
 
 @router.get("/purchase-orders/{po_id}")
@@ -89,8 +94,8 @@ async def create_grn(grn_data: GRNCreate, current_user: Employee = Depends(check
 
 
 @router.get("/grn")
-async def get_grns(po_id: Optional[str] = None, current_user: Employee = Depends(get_current_user)):
-    return await procurement_controller.get_grns(po_id)
+async def get_grns(po_id: Optional[str] = None, page: int = 1, limit: int = 10, current_user: Employee = Depends(get_current_user)):
+    return await procurement_controller.get_grns(po_id, page, limit)
 
 
 @router.get("/grn/{grn_id}")

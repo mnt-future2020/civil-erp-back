@@ -117,15 +117,20 @@ async def transfer_material(data: InventoryTransfer, current_user: Employee) -> 
     else:
         # No destination item selected — create new item in destination project
         new_item = InventoryItem(
+            item_type=source.get("item_type", "material"),
             project_id=data.to_project_id,
             item_name=source["item_name"],
             category=source["category"],
-            unit=source["unit"],
+            unit=source.get("unit"),
             quantity=data.quantity,
             minimum_quantity=source.get("minimum_quantity", 0),
-            unit_price=source["unit_price"],
+            unit_price=source.get("unit_price", 0),
             gst_rate=source.get("gst_rate", 18.0),
             hsn_code=source.get("hsn_code"),
+            serial_number=source.get("serial_number"),
+            condition=source.get("condition"),
+            purchase_date=source.get("purchase_date"),
+            equipment_status=source.get("equipment_status"),
             location=source.get("location"),
             notes=f"Transferred from project. {data.notes or ''}".strip(),
         )

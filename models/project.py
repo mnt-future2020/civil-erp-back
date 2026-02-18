@@ -71,15 +71,31 @@ class DPRCreate(BaseModel):
     project_id: str
     date: str
     weather: Optional[str] = None
+    # Legacy fields (kept for backward compat)
     labor_count: int = 0
     labor_entries: List[dict] = Field(default_factory=list)
-    work_done: str
+    work_done: str = ""
     materials_used: Optional[str] = None
     materials_used_entries: List[dict] = Field(default_factory=list)
     issues: Optional[str] = None
     notes: Optional[str] = None
     sqft_completed: Optional[float] = None
     tomorrow_schedule: Optional[str] = None
+    # Work Summary (structured)
+    work_summary_entries: List[dict] = Field(default_factory=list)
+    # Labour Details (extended with contractor support)
+    labour_entries: List[dict] = Field(default_factory=list)
+    # Material Inventory (stock tracking)
+    material_stock_entries: List[dict] = Field(default_factory=list)
+    # Equipment Used
+    equipment_entries: List[dict] = Field(default_factory=list)
+    # Next Day Requirement
+    next_day_material_requests: List[dict] = Field(default_factory=list)
+    next_day_equipment_requests: List[dict] = Field(default_factory=list)
+    # Contractor Work Summary
+    contractor_work_entries: List[dict] = Field(default_factory=list)
+    # Image Upload (document IDs)
+    document_ids: List[str] = Field(default_factory=list)
 
 
 class DPR(DPRCreate):

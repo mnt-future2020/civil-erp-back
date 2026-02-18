@@ -1,13 +1,17 @@
 from fastapi import HTTPException
 from typing import Optional, List
 from datetime import datetime, timezone
+import math
 import re
 import uuid
 import smtplib
+import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from database import db
+
+logger = logging.getLogger(__name__)
 from models.procurement import (
     Vendor, VendorCreate, VendorRating,
     PurchaseOrder, PurchaseOrderCreate, POStatusUpdate,
@@ -96,8 +100,9 @@ async def _send_po_approval_email(po: dict) -> None:
         server.login(smtp["username"], password)
         server.sendmail(smtp["from_email"], [vendor["email"]], msg.as_string())
         server.quit()
-    except Exception:
-        pass  # Email failure should not break PO approval
+        logger.info(f"PO approval email sent to {vendor['email']} for PO {po.get('po_number')}")
+    except Exception as e:
+        logger.error(f"PO approval email failed for PO {po.get('po_number')} → {vendor.get('email')}: {e}")
 
 
 # ── Vendors ───────────────────────────────────────────────
@@ -108,11 +113,20 @@ async def create_vendor(vendor_data: VendorCreate) -> Vendor:
     return vendor
 
 
-async def get_vendors(category: Optional[str] = None) -> List[dict]:
-    query = {"is_active": True}
+async def get_vendors(category: Optional[str] = None, page: int = 1, limit: int = 20, show_inactive: bool = False) -> dict:
+    query = {} if show_inactive else {"is_active": True}
     if category:
         query["category"] = category
-    return await db.vendors.find(query, {"_id": 0}).to_list(1000)
+    total = await db.vendors.count_documents(query)
+    skip = (page - 1) * limit
+    items = await db.vendors.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {
+        "data": items,
+        "total": total,
+        "page": page,
+        "pages": math.ceil(total / limit) if limit else 1,
+        "limit": limit,
+    }
 
 
 async def get_vendor(vendor_id: str) -> Vendor:
@@ -173,6 +187,14 @@ async def deactivate_vendor(vendor_id: str) -> dict:
     return {"message": "Vendor deactivated"}
 
 
+async def reactivate_vendor(vendor_id: str) -> dict:
+    existing = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    await db.vendors.update_one({"id": vendor_id}, {"$set": {"is_active": True}})
+    return {"message": "Vendor reactivated"}
+
+
 # ── Purchase Orders ───────────────────────────────────────
 
 async def create_purchase_order(po_data: PurchaseOrderCreate) -> PurchaseOrder:
@@ -190,7 +212,7 @@ async def create_purchase_order(po_data: PurchaseOrderCreate) -> PurchaseOrder:
     return po
 
 
-async def get_purchase_orders(project_id: Optional[str] = None, vendor_id: Optional[str] = None, status: Optional[str] = None) -> List[dict]:
+async def get_purchase_orders(project_id: Optional[str] = None, vendor_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20) -> dict:
     query = {}
     if project_id:
         query["project_id"] = project_id
@@ -198,7 +220,26 @@ async def get_purchase_orders(project_id: Optional[str] = None, vendor_id: Optio
         query["vendor_id"] = vendor_id
     if status:
         query["status"] = status
-    return await db.purchase_orders.find(query, {"_id": 0}).to_list(1000)
+    total = await db.purchase_orders.count_documents(query)
+    skip = (page - 1) * limit
+    items = await db.purchase_orders.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    # Enrich each PO with vendor_name and project_name
+    vids = list({po.get("vendor_id") for po in items if po.get("vendor_id")})
+    pids = list({po.get("project_id") for po in items if po.get("project_id")})
+    vdocs = await db.vendors.find({"id": {"$in": vids}}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    pdocs = await db.projects.find({"id": {"$in": pids}}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    vmap = {v["id"]: v["name"] for v in vdocs}
+    pmap = {p["id"]: p["name"] for p in pdocs}
+    for po in items:
+        po["vendor_name"] = vmap.get(po.get("vendor_id", ""), "")
+        po["project_name"] = pmap.get(po.get("project_id", ""), "")
+    return {
+        "data": items,
+        "total": total,
+        "page": page,
+        "pages": math.ceil(total / limit) if limit else 1,
+        "limit": limit,
+    }
 
 
 async def get_purchase_order(po_id: str) -> dict:
@@ -369,9 +410,24 @@ async def create_grn(grn_data: GRNCreate) -> GRN:
     return grn
 
 
-async def get_grns(po_id: Optional[str] = None) -> List[dict]:
+async def get_grns(po_id: Optional[str] = None, page: int = 1, limit: int = 20) -> dict:
     query = {"po_id": po_id} if po_id else {}
-    return await db.grns.find(query, {"_id": 0}).to_list(1000)
+    total = await db.grns.count_documents(query)
+    skip = (page - 1) * limit
+    items = await db.grns.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    # Enrich with PO number
+    po_ids = list({g.get("po_id") for g in items if g.get("po_id")})
+    po_docs = await db.purchase_orders.find({"id": {"$in": po_ids}}, {"_id": 0, "id": 1, "po_number": 1}).to_list(200)
+    po_map = {p["id"]: p["po_number"] for p in po_docs}
+    for g in items:
+        g["po_number"] = po_map.get(g.get("po_id", ""), "")
+    return {
+        "data": items,
+        "total": total,
+        "page": page,
+        "pages": math.ceil(total / limit) if limit else 1,
+        "limit": limit,
+    }
 
 
 async def get_grn_detail(grn_id: str) -> dict:

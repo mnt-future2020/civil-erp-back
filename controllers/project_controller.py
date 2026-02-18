@@ -67,14 +67,28 @@ async def update_project_status(project_id: str, data: ProjectStatusUpdate) -> d
     return await db.projects.find_one({"id": project_id}, {"_id": 0})
 
 
+async def recalculate_project_progress(project_id: str):
+    """Auto-calculate progress = (completed tasks / total tasks) * 100."""
+    tasks = await db.tasks.find({"project_id": project_id}, {"status": 1}).to_list(1000)
+    total = len(tasks)
+    if total == 0:
+        pct = 0.0
+    else:
+        completed = sum(1 for t in tasks if t.get("status") == "completed")
+        pct = round((completed / total) * 100, 1)
+    await db.projects.update_one({"id": project_id}, {"$set": {"progress_percentage": pct}})
+    return pct
+
+
 async def update_project_progress(project_id: str, data: ProjectProgressUpdate) -> dict:
     existing = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
-    update = {"progress_percentage": data.progress_percentage}
+    update = {}
     if data.actual_cost is not None:
         update["actual_cost"] = data.actual_cost
-    await db.projects.update_one({"id": project_id}, {"$set": update})
+    if update:
+        await db.projects.update_one({"id": project_id}, {"$set": update})
     return await db.projects.find_one({"id": project_id}, {"_id": 0})
 
 
@@ -92,6 +106,12 @@ async def get_project_summary(project_id: str) -> dict:
     total_tasks = len(tasks)
     completed_tasks = len([t for t in tasks if t.get('status') == 'completed'])
     in_progress_tasks = len([t for t in tasks if t.get('status') == 'in_progress'])
+
+    # Sync progress_percentage from tasks
+    pct = round((completed_tasks / total_tasks) * 100, 1) if total_tasks > 0 else 0.0
+    if project.get("progress_percentage") != pct:
+        await db.projects.update_one({"id": project_id}, {"$set": {"progress_percentage": pct}})
+        project["progress_percentage"] = pct
     total_billed = sum(b.get('total_amount', 0) for b in billings)
     total_po = sum(p.get('total', 0) for p in pos)
     total_cvr_work = sum(c.get('work_done_value', 0) for c in cvrs)
@@ -112,6 +132,7 @@ async def get_project_summary(project_id: str) -> dict:
 async def create_task(task_data: TaskCreate) -> Task:
     task = Task(**task_data.model_dump())
     await db.tasks.insert_one(task.model_dump())
+    await recalculate_project_progress(task_data.project_id)
     return task
 
 
@@ -138,13 +159,16 @@ async def update_task_status(task_id: str, data: TaskStatusUpdate) -> dict:
     elif data.status == "completed":
         update["progress"] = 100.0
     await db.tasks.update_one({"id": task_id}, {"$set": update})
+    await recalculate_project_progress(existing["project_id"])
     return await db.tasks.find_one({"id": task_id}, {"_id": 0})
 
 
 async def delete_task(task_id: str) -> dict:
-    result = await db.tasks.delete_one({"id": task_id})
-    if result.deleted_count == 0:
+    existing = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    if not existing:
         raise HTTPException(status_code=404, detail="Task not found")
+    await db.tasks.delete_one({"id": task_id})
+    await recalculate_project_progress(existing["project_id"])
     return {"message": "Task deleted"}
 
 
@@ -158,12 +182,53 @@ def _inv_status(qty, min_qty):
     return "in_stock"
 
 
+async def get_previous_closing_stock(project_id: str, inventory_id: str, current_date: str) -> float:
+    """Get opening stock for an item: previous DPR's closing stock, or current inventory qty."""
+    prev_dprs = await db.dprs.find(
+        {
+            "project_id": project_id,
+            "date": {"$lt": current_date},
+            "material_stock_entries.inventory_id": inventory_id
+        },
+        {"_id": 0, "material_stock_entries": 1, "date": 1}
+    ).sort("date", -1).limit(1).to_list(1)
+
+    if prev_dprs:
+        for entry in prev_dprs[0].get("material_stock_entries", []):
+            if entry.get("inventory_id") == inventory_id:
+                return float(entry.get("closing_stock", 0))
+
+    item = await db.inventory.find_one({"id": inventory_id}, {"_id": 0})
+    if item:
+        return float(item.get("quantity", 0))
+    return 0.0
+
+
 async def create_dpr(dpr_data: DPRCreate, current_user: Employee) -> DPR:
-    dpr = DPR(**dpr_data.model_dump(), created_by=current_user.id)
+    dpr_dict = dpr_data.model_dump()
+
+    # Resolve opening/closing stock for material_stock_entries
+    resolved_material_entries = []
+    for entry in dpr_data.material_stock_entries:
+        inv_id = entry.get("inventory_id")
+        received = float(entry.get("received", 0))
+        used = float(entry.get("used", 0))
+        opening = await get_previous_closing_stock(dpr_data.project_id, inv_id, dpr_data.date)
+        closing = max(0.0, opening + received - used)
+        resolved_material_entries.append({**entry, "opening_stock": opening, "closing_stock": closing})
+    dpr_dict["material_stock_entries"] = resolved_material_entries
+
+    dpr = DPR(**dpr_dict, created_by=current_user.id)
     await db.dprs.insert_one(dpr.model_dump())
-    # Auto-deduct inventory for each material used
+
+    # IDs handled by new stock path (avoid double-deduction)
+    new_path_ids = {e.get("inventory_id") for e in resolved_material_entries if e.get("inventory_id")}
+
+    # Legacy: auto-deduct materials_used_entries (skip if handled by new path)
     for entry in dpr_data.materials_used_entries:
         item_id = entry.get("inventory_id")
+        if item_id in new_path_ids:
+            continue
         qty_used = float(entry.get("quantity_used", 0))
         if item_id and qty_used > 0:
             item = await db.inventory.find_one({"id": item_id}, {"_id": 0})
@@ -171,10 +236,36 @@ async def create_dpr(dpr_data: DPRCreate, current_user: Employee) -> DPR:
                 new_qty = max(0, item["quantity"] - qty_used)
                 await db.inventory.update_one({"id": item_id}, {"$set": {
                     "quantity": new_qty,
-                    "total_value": new_qty * item["unit_price"],
-                    "status": _inv_status(new_qty, item["minimum_quantity"]),
+                    "total_value": new_qty * item.get("unit_price", 0),
+                    "status": _inv_status(new_qty, item.get("minimum_quantity", 0)),
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }})
+
+    # New path: deduct used qty from material_stock_entries
+    for entry in resolved_material_entries:
+        item_id = entry.get("inventory_id")
+        qty_used = float(entry.get("used", 0))
+        if item_id and qty_used > 0:
+            item = await db.inventory.find_one({"id": item_id}, {"_id": 0})
+            if item:
+                new_qty = max(0, item["quantity"] - qty_used)
+                await db.inventory.update_one({"id": item_id}, {"$set": {
+                    "quantity": new_qty,
+                    "total_value": new_qty * item.get("unit_price", 0),
+                    "status": _inv_status(new_qty, item.get("minimum_quantity", 0)),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }})
+
+    # Equipment: mark as in_use if hours > 0
+    for entry in dpr_data.equipment_entries:
+        item_id = entry.get("inventory_id")
+        hours = float(entry.get("total_used_hours", 0))
+        if item_id and hours > 0:
+            await db.inventory.update_one({"id": item_id}, {"$set": {
+                "equipment_status": "in_use",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }})
+
     return dpr
 
 

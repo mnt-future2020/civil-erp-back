@@ -216,8 +216,11 @@ async def get_cloudinary_config() -> dict | None:
     settings = await db.cloudinary_settings.find_one({}, {"_id": 0})
     if not settings:
         return None
-    return {
-        "cloud_name": settings["cloud_name"],
-        "api_key": settings["api_key"],
-        "api_secret": decrypt_value(settings["api_secret_enc"])
-    }
+    try:
+        return {
+            "cloud_name": settings["cloud_name"],
+            "api_key": settings["api_key"],
+            "api_secret": decrypt_value(settings["api_secret_enc"])
+        }
+    except Exception:
+        return None

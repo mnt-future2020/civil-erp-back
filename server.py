@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import logging
 import os
 import uuid
+import traceback
 from datetime import datetime, timezone
 
 # Load config first (triggers dotenv)
@@ -24,6 +26,7 @@ from routes.documents import router as documents_router
 from routes.ai import router as ai_router
 from routes.reports import router as reports_router
 from routes.inventory import router as inventory_router
+from routes.contractor import router as contractor_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,13 +36,25 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Civil Construction ERP API")
 
 # CORS Middleware
+_cors_origins = os.environ.get('CORS_ORIGINS', '*').split(',')
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    # allow_origins=["*"] + allow_credentials=True is invalid per spec;
+    # use allow_origin_regex to accept everything while keeping credentials
+    allow_origins=_cors_origins if _cors_origins != ['*'] else [],
+    allow_origin_regex=".*" if _cors_origins == ['*'] else None,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Global exception handler — ensures 500s return JSON (not raw HTML) so CORS applies
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error on {request.method} {request.url.path}: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
 
 # Register all routers under /api prefix
 API_PREFIX = "/api"
@@ -57,6 +72,7 @@ app.include_router(documents_router,   prefix=API_PREFIX)
 app.include_router(ai_router,          prefix=API_PREFIX)
 app.include_router(reports_router,     prefix=API_PREFIX)
 app.include_router(inventory_router,   prefix=API_PREFIX)
+app.include_router(contractor_router,  prefix=API_PREFIX)
 
 
 # ── Root / Health ──────────────────────────────────────────
