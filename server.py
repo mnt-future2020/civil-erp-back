@@ -19,14 +19,15 @@ from routes.financial import router as financial_router
 from routes.procurement import router as procurement_router
 from routes.hrms import router as hrms_router
 from routes.rbac import router as rbac_router
-from routes.compliance import router as compliance_router
-from routes.einvoice import router as einvoice_router
+# from routes.compliance import router as compliance_router
+# from routes.einvoice import router as einvoice_router
 from routes.settings import router as settings_router
 from routes.documents import router as documents_router
 from routes.ai import router as ai_router
 from routes.reports import router as reports_router
 from routes.inventory import router as inventory_router
 from routes.contractor import router as contractor_router
+from routes.audit import router as audit_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -65,14 +66,15 @@ app.include_router(financial_router,   prefix=API_PREFIX)
 app.include_router(procurement_router, prefix=API_PREFIX)
 app.include_router(hrms_router,        prefix=API_PREFIX)
 app.include_router(rbac_router,        prefix=API_PREFIX)
-app.include_router(compliance_router,  prefix=API_PREFIX)
-app.include_router(einvoice_router,    prefix=API_PREFIX)
+# app.include_router(compliance_router,  prefix=API_PREFIX)
+# app.include_router(einvoice_router,    prefix=API_PREFIX)
 app.include_router(settings_router,    prefix=API_PREFIX)
 app.include_router(documents_router,   prefix=API_PREFIX)
 app.include_router(ai_router,          prefix=API_PREFIX)
 app.include_router(reports_router,     prefix=API_PREFIX)
 app.include_router(inventory_router,   prefix=API_PREFIX)
 app.include_router(contractor_router,  prefix=API_PREFIX)
+app.include_router(audit_router,       prefix=API_PREFIX)
 
 
 # ── Root / Health ──────────────────────────────────────────
@@ -88,6 +90,13 @@ async def health():
 
 
 # ── Startup / Shutdown ─────────────────────────────────────
+
+@app.on_event("startup")
+async def ensure_indexes():
+    """Create unique indexes for critical fields."""
+    await db.projects.create_index("code", unique=True, sparse=True)
+    logger.info("Database indexes ensured")
+
 
 @app.on_event("startup")
 async def seed_default_roles():

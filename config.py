@@ -13,8 +13,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 # RBAC Constants
 MODULES = [
     "dashboard", "projects", "financial", "procurement",
-    "hrms", "compliance", "einvoicing", "reports",
-    "ai_assistant", "settings", "inventory"
+    "hrms", "reports", "ai_assistant", "settings", "inventory"
 ]
 PERMISSION_TYPES = ["view", "create", "edit", "delete"]
 

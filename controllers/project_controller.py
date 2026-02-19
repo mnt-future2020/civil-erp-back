@@ -14,6 +14,10 @@ from models.hrms import Employee
 # ── Projects ──────────────────────────────────────────────
 
 async def create_project(project_data: ProjectCreate, current_user: Employee) -> Project:
+    # Ensure project code is unique
+    existing = await db.projects.find_one({"code": project_data.code}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Project code '{project_data.code}' already exists")
     project = Project(**project_data.model_dump(), created_by=current_user.id)
     await db.projects.insert_one(project.model_dump())
     return project
@@ -39,6 +43,9 @@ async def get_projects(page: int = 1, limit: int = 10, status: Optional[str] = N
 async def get_project(project_id: str) -> Project:
     project = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not project:
+        # Fallback: try lookup by project code (for URL-friendly routes)
+        project = await db.projects.find_one({"code": project_id}, {"_id": 0})
+    if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return Project(**project)
 
@@ -47,6 +54,11 @@ async def update_project(project_id: str, project_data: ProjectCreate) -> Projec
     existing = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
+    # If code changed, check uniqueness
+    if project_data.code != existing.get("code"):
+        dup = await db.projects.find_one({"code": project_data.code, "id": {"$ne": project_id}}, {"_id": 0})
+        if dup:
+            raise HTTPException(status_code=400, detail=f"Project code '{project_data.code}' already exists")
     await db.projects.update_one({"id": project_id}, {"$set": project_data.model_dump()})
     updated = await db.projects.find_one({"id": project_id}, {"_id": 0})
     return Project(**updated)

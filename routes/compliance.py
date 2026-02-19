@@ -24,5 +24,5 @@ async def create_rera_project(rera_data: RERAProjectCreate, current_user: Employ
 
 
 @router.get("/rera-projects", response_model=List[RERAProject])
-async def get_rera_projects(current_user: Employee = Depends(get_current_user)):
+async def get_rera_projects(current_user: Employee = Depends(check_permission("compliance", "view"))):
     return await compliance_controller.get_rera_projects()
