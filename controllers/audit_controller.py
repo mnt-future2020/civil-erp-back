@@ -125,9 +125,15 @@ async def get_audit_logs(
     if date_from or date_to:
         ts = {}
         if date_from:
-            ts["$gte"] = datetime.fromisoformat(date_from)
+            # "2026-02-19" < any IST timestamp of that day ("2026-02-19T...")
+            ts["$gte"] = date_from
         if date_to:
-            ts["$lte"] = datetime.fromisoformat(date_to + "T23:59:59")
+            # Use start of next day as exclusive upper bound.
+            # Avoids the +05:30 / microseconds suffix problem:
+            # "2026-02-19T23:59:59.999999+05:30" < "2026-02-20" ✓
+            from datetime import timedelta
+            next_day = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+            ts["$lt"] = next_day
         query["timestamp"] = ts
     if search:
         query["description"] = {"$regex": search, "$options": "i"}
